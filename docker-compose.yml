@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_TRACING_V2=true
+      - COHERE_API_KEY=${COHERE_API_KEY}
+      - DATABASE_URL=postgresql://postgres:password@db:5432/policydb
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - db
+      - redis
+    networks:
+      - policy-network
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=policydb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - policy-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - policy-network
+
+volumes:
+  postgres_data:
+
+networks:
+  policy-network:
+    driver: bridge

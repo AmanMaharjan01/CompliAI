@@ -1,0 +1,33 @@
+# Core Framework
+langchain==0.1.0
+langchain-openai==0.0.5
+langchain-community==0.0.13
+
+# LLM & Embeddings
+openai==1.7.0
+cohere==4.40
+
+# Vector Stores
+chromadb==0.4.22
+
+# Document Processing
+pypdf==3.17.4
+python-docx==1.1.0
+markdown==3.5.1
+beautifulsoup4==4.12.2
+
+# UI Framework
+streamlit==1.29.0
+
+# Observability
+langsmith==0.0.77
+
+# Utilities
+python-dotenv==1.0.0
+tenacity==8.2.3
+tiktoken==0.5.2
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
