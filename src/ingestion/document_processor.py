@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import uuid
+import time
 
-from langchain.document_loaders import (
+from langchain_community.document_loaders import (
     PyPDFLoader,
     Docx2txtLoader,
-    TextLoader,
-    UnstructuredMarkdownLoader
+    TextLoader
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
@@ -32,10 +32,12 @@ class DocumentProcessor:
         self,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
-        vector_store_manager: Optional[VectorStoreManager] = None
+        vector_store_manager: Optional[VectorStoreManager] = None,
+        batch_size: int = 10  # NEW: Process in batches
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.batch_size = batch_size
         
         # Initialize text splitter with semantic separators
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -70,7 +72,8 @@ class DocumentProcessor:
             elif file_type in ['.txt']:
                 loader = TextLoader(file_path, encoding='utf-8')
             elif file_type in ['.md', '.markdown']:
-                loader = UnstructuredMarkdownLoader(file_path)
+                # For markdown, use TextLoader as fallback
+                loader = TextLoader(file_path, encoding='utf-8')
             else:
                 raise ValueError(f"Unsupported file type: {file_type}")
             
@@ -118,13 +121,17 @@ class DocumentProcessor:
         self,
         file_path: str,
         metadata: Optional[Dict[str, Any]] = None,
-        file_type: Optional[str] = None
+        file_type: Optional[str] = None,
+        progress_callback = None  # NEW: For progress updates
     ) -> Dict[str, Any]:
         """Complete ingestion pipeline: load -> chunk -> embed -> index"""
         logger.info(f"Starting document ingestion: {file_path}")
         
         try:
             # Load document
+            if progress_callback:
+                progress_callback("Loading document...", 0.1)
+            
             documents = self.load_document(file_path, file_type)
             
             # Add source metadata
@@ -139,10 +146,34 @@ class DocumentProcessor:
                 source_metadata.update(metadata)
             
             # Chunk documents
+            if progress_callback:
+                progress_callback("Chunking document...", 0.3)
+            
             chunks = self.chunk_documents(documents, source_metadata)
             
-            # Index in vector store
-            doc_id = self.vector_store_manager.add_documents(chunks)
+            # Index in batches to avoid rate limits
+            if progress_callback:
+                progress_callback(f"Indexing {len(chunks)} chunks...", 0.5)
+            
+            total_batches = (len(chunks) + self.batch_size - 1) // self.batch_size
+            
+            for i in range(0, len(chunks), self.batch_size):
+                batch = chunks[i:i + self.batch_size]
+                batch_num = i // self.batch_size + 1
+                
+                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} chunks)")
+                
+                self.vector_store_manager.add_documents(batch)
+                
+                if progress_callback:
+                    progress = 0.5 + (0.5 * (batch_num / total_batches))
+                    progress_callback(f"Batch {batch_num}/{total_batches}", progress)
+                
+                # Small delay to avoid rate limits
+                if i + self.batch_size < len(chunks):
+                    time.sleep(0.5)
+            
+            doc_id = source_metadata["source"]
             
             result = {
                 "document_id": doc_id,

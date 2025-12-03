@@ -9,8 +9,7 @@ import os
 from pathlib import Path
 
 import chromadb
-from chromadb.config import Settings
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 
 from src.utils.embeddings import get_embedding_model
@@ -24,7 +23,8 @@ class VectorStoreManager:
     def __init__(
         self,
         collection_name: str = "compliai_policies",
-        persist_directory: Optional[str] = None
+        persist_directory: Optional[str] = None,
+        use_gemini: bool = False  # Keep parameter for backward compatibility but ignore it
     ):
         self.collection_name = collection_name
         self.persist_directory = persist_directory or os.getenv(
@@ -36,21 +36,19 @@ class VectorStoreManager:
         Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
         
         # Initialize embedding model
+        # Now reads EMBEDDING_PROVIDER from environment automatically
         self.embedding_model = get_embedding_model()
         
-        # Initialize ChromaDB client
-        self.client = chromadb.Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory=self.persist_directory,
-            anonymized_telemetry=False
-        ))
+        # Initialize ChromaDB client with new configuration
+        self.client = chromadb.PersistentClient(
+            path=self.persist_directory
+        )
         
         # Initialize LangChain Chroma wrapper
         self.vector_store = Chroma(
             client=self.client,
             collection_name=collection_name,
             embedding_function=self.embedding_model,
-            persist_directory=self.persist_directory
         )
         
         logger.info(f"Initialized CompliAI vector store: {collection_name}")
@@ -68,9 +66,6 @@ class VectorStoreManager:
             
             # Add to vector store
             self.vector_store.add_documents(documents=documents, ids=ids)
-            
-            # Persist changes
-            self.vector_store.persist()
             
             logger.info(f"Added {len(documents)} documents to vector store")
             return documents[0].metadata.get('source', 'unknown')
@@ -155,7 +150,6 @@ class VectorStoreManager:
             collection = self.client.get_collection(self.collection_name)
             collection.delete(where={"source": document_id})
             
-            self.vector_store.persist()
             logger.info(f"Deleted document: {document_id}")
             
         except Exception as e:
@@ -181,7 +175,6 @@ class VectorStoreManager:
                     metadatas=[metadata]
                 )
             
-            self.vector_store.persist()
             logger.info(f"Updated metadata for document: {document_id}")
             
         except Exception as e:
@@ -202,7 +195,11 @@ class VectorStoreManager:
             
         except Exception as e:
             logger.error(f"Error getting stats: {str(e)}")
-            return {}
+            return {
+                "collection_name": self.collection_name,
+                "total_chunks": 0,
+                "persist_directory": self.persist_directory
+            }
     
     def clear_collection(self) -> None:
         """Clear all documents from collection"""

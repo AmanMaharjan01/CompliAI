@@ -94,32 +94,73 @@ cd policy-compliance-assistant
 ### 2. Create Virtual Environment
 
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
 
+**For FREE local embeddings (RECOMMENDED):**
+
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
+pip3 install sentence-transformers
+```
+
+**For API-based embeddings:**
+
+```bash
+pip3 install -r requirements.txt
 ```
 
 ### 4. Set Up Environment Variables
 
+**Get Google Gemini API Key (FREE):**
+
+1. Visit: https://makersuite.google.com/app/apikey
+2. Click "Create API Key"
+3. Select/Create a Google Cloud project
+4. Copy the ENTIRE key (starts with `AIza...`)
+
+**Configure .env file:**
+
 ```bash
 cp .env.example .env
-# Edit .env with your API keys
 ```
 
-Required environment variables:
+Edit `.env` file:
 
+```bash
+# Embedding provider (FREE local option)
+EMBEDDING_PROVIDER=huggingface
+
+# LLM provider (FREE tier option)
+LLM_PROVIDER=gemini
+
+# Gemini API Key (39-40 characters, starts with AIza)
+GOOGLE_API_KEY=AIzaSyD_paste_your_full_key_here
 ```
-OPENAI_API_KEY=your_openai_key
-LANGCHAIN_API_KEY=your_langsmith_key (optional)
-LANGCHAIN_TRACING_V2=true (optional)
-LANGCHAIN_PROJECT=compliai-assistant (optional)
-COHERE_API_KEY=your_cohere_key (optional)
+
+**IMPORTANT - Common Mistakes:**
+
+- ❌ `GOOGLE_API_KEY="AIza..."` (Don't use quotes)
+- ❌ `GOOGLE_API_KEY= AIza...` (No space after =)
+- ❌ Only copying part of the key
+- ✅ `GOOGLE_API_KEY=AIzaSyDXXXXXXXXXX` (Correct format)
+
+**FREE Configuration (No API costs for embeddings):**
+
+```bash
+EMBEDDING_PROVIDER=huggingface
+LLM_PROVIDER=gemini
+GOOGLE_API_KEY=your_free_gemini_key
 ```
+
+**First Time Setup:**
+
+- HuggingFace will download a ~80MB model on first run
+- This takes 1-2 minutes but only happens once
+- After that, everything runs locally and fast!
 
 ## 📖 Usage
 
@@ -129,7 +170,11 @@ COHERE_API_KEY=your_cohere_key (optional)
 streamlit run app.py
 ```
 
-The application will open in your browser at `http://localhost:8501`
+**First Run:**
+
+- If using HuggingFace, wait for model download (1-2 minutes)
+- Model is cached locally for future use
+- No downloads needed after first run
 
 ### Upload Policy Documents
 
@@ -183,6 +228,12 @@ result = processor.ingest_document(
 print(f"Processed {result['num_chunks']} chunks")
 ```
 
+### Batch Upload Documents
+
+```bash
+python3 scripts/batch_ingest.py --directory ./policies --department HR --policy-type "Company Policy"
+```
+
 ## 🧪 Testing
 
 ### Run Unit Tests
@@ -200,7 +251,7 @@ pytest tests/integration -v
 ### Run Evaluation Pipeline
 
 ```bash
-python scripts/evaluate_rag.py --dataset tests/test_queries.json
+python3 scripts/evaluate_rag.py --dataset tests/test_queries.json
 ```
 
 ## 📊 Evaluation Metrics
@@ -290,3 +341,207 @@ MIT License - see [LICENSE](LICENSE) file.
 - [ ] Automated policy updates
 - [ ] Advanced analytics dashboard
 - [ ] Export conversation history
+
+## 🆓 FREE Tier Options
+
+CompliAI supports **completely FREE** operation with no API costs:
+
+### Option 1: FREE Embeddings + Gemini 1.5 Flash (RECOMMENDED)
+
+```bash
+# .env configuration
+EMBEDDING_PROVIDER=huggingface  # FREE - runs locally
+LLM_PROVIDER=gemini              # FREE tier available
+GEMINI_MODEL=gemini-1.5-flash-latest    # Best for FREE tier
+GOOGLE_API_KEY=your_free_gemini_key
+```
+
+**Gemini 1.5 Flash Benefits:**
+
+- ✅ **Completely FREE** with generous quotas
+- ✅ **Fast responses** (optimized for speed)
+- ✅ **1500 requests per day** on free tier
+- ✅ **15 RPM** (requests per minute)
+- ✅ **1 million tokens per minute**
+- ✅ Perfect for document Q&A use cases
+
+**Free Tier Limits:**
+| Model | Requests/Day | Requests/Min | Tokens/Min |
+|-------|-------------|--------------|------------|
+| gemini-1.5-flash-latest | 1,500 | 15 | 1M |
+| gemini-1.5-pro-latest | 50 | 2 | 32K |
+| gemini-pro | 60 | 2 | 32K |
+
+### Option 2: Gemini Models Comparison
+
+**Gemini 1.5 Flash Latest** (RECOMMENDED for FREE tier):
+
+- ⚡ Fastest response times
+- 💰 Most generous free quotas
+- 🎯 Optimized for common tasks
+- ✅ Best for CompliAI use case
+- 🔧 Model: `gemini-1.5-flash-latest`
+
+**Gemini 1.5 Pro Latest** (Advanced):
+
+- 🧠 More capable reasoning
+- 📊 Better for complex queries
+- ⚠️ Lower rate limits (2 RPM)
+- 💡 Use if you need deeper analysis
+- 🔧 Model: `gemini-1.5-pro-latest`
+
+**Gemini Pro** (Legacy):
+
+- ⚠️ Being phased out
+- 🔧 Model: `gemini-pro`
+- ❌ Not recommended (use flash-latest instead)
+
+## 💰 Cost Comparison
+
+| Configuration                      | Document Processing | Per Query    | Monthly Cost (100 queries/100 docs) |
+| ---------------------------------- | ------------------- | ------------ | ----------------------------------- |
+| **HuggingFace + Gemini 1.5 Flash** | FREE (local)        | FREE (tier)  | **$0** ✅                           |
+| **HuggingFace + Gemini 1.5 Pro**   | FREE (local)        | FREE (tier)  | **$0** (lower limits)               |
+| **HuggingFace + Ollama**           | FREE (local)        | FREE (local) | **$0** (offline)                    |
+| OpenAI + OpenAI                    | $2-5                | $0.01-0.05   | ~$5-10                              |
+
+## ⚠️ Troubleshooting
+
+### Which Gemini Model Should I Use?
+
+**For FREE tier - Use `gemini-1.5-flash-latest`:**
+
+```bash
+GEMINI_MODEL=gemini-1.5-flash-latest
+```
+
+**Reasons:**
+
+- 1500 requests/day (vs 50 for Pro)
+- 15 requests/minute (vs 2 for Pro)
+- Faster responses
+- Perfect for policy Q&A
+
+**When to use `gemini-1.5-pro-latest`:**
+
+- Need deeper reasoning
+- Complex multi-step questions
+- Don't mind slower rate limits
+
+### Gemini Model Not Found Error
+
+**Error:** "404 models/gemini-1.5-flash is not found"
+
+**Solution:** Use the correct model name with `-latest` suffix
+
+```bash
+# In .env file - CORRECT format:
+GEMINI_MODEL=gemini-1.5-flash-latest
+
+# WRONG formats (don't use):
+# GEMINI_MODEL=gemini-1.5-flash
+# GEMINI_MODEL=models/gemini-1.5-flash
+```
+
+**Valid model names:**
+
+- ✅ `gemini-1.5-flash-latest`
+- ✅ `gemini-1.5-pro-latest`
+- ✅ `gemini-pro`
+
+### Gemini Rate Limit Exceeded
+
+**Error:** "429 Too Many Requests"
+
+**Solution:**
+
+1. Switch to `gemini-1.5-flash` (higher limits)
+2. Use HuggingFace embeddings (reduces API calls)
+3. Add delays between queries
+4. Or use Ollama (no limits)
+
+### First Document Takes Long Time
+
+**Normal:** First time loading the model takes 1-2 minutes
+
+**After that:** Very fast (model is cached)
+
+### "Quota Exceeded" with Small Documents
+
+**Problem:** Even 1-page PDFs exceed API limits
+
+**Solution:** Use FREE local embeddings
+
+```bash
+# In .env file
+EMBEDDING_PROVIDER=huggingface
+```
+
+**Why:** Each chunk creates an API call. HuggingFace runs on your computer - **no API calls!**
+
+### "Could not import sentence_transformers"
+
+**Problem:** sentence-transformers package not installed
+
+**Solution:**
+
+```bash
+pip3 install sentence-transformers
+```
+
+**Why this package:**
+
+- Provides FREE local embeddings
+- No API calls required
+- Works completely offline after initial setup
+
+### First Time Slow Initialization
+
+**Normal:** First run downloads ~80MB model (1-2 minutes)
+
+**After that:** Instant loading (model is cached)
+
+**Where is it cached:** `~/.cache/huggingface/`
+
+### "API key not valid" Error
+
+**Problem:** Gemini API key is invalid or incorrect
+
+**Solution:**
+
+1. Get a NEW key from: https://makersuite.google.com/app/apikey
+2. Copy the FULL key (usually 39 characters)
+3. Update `.env` without quotes or spaces:
+   ```
+   GOOGLE_API_KEY=AIzaSyDXXXXXXXXXXXXXXXXXXXXXXXX
+   ```
+4. Verify the key starts with `AIza`
+5. Restart the app
+
+**Verify your key:**
+
+```bash
+# Check your .env file
+cat .env | grep GOOGLE_API_KEY
+
+# Should show something like:
+# GOOGLE_API_KEY=AIzaSyD...
+# (no quotes, no extra spaces)
+```
+
+### Alternative: Use Completely Free Offline Mode
+
+If you keep having API key issues:
+
+```bash
+# .env configuration
+EMBEDDING_PROVIDER=huggingface
+LLM_PROVIDER=ollama
+
+# Install Ollama
+curl https://ollama.ai/install.sh | sh
+ollama pull llama2
+ollama serve
+```
+
+No API keys needed - everything runs on your computer!

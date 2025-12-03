@@ -1,13 +1,13 @@
 """
-Answer generation with PDO prompting and structured output
+Answer generation with multiple LLM provider support
 """
 
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 import json
+import os
 
-from langchain_openai import ChatOpenAI
 from langchain.schema import Document
 from langchain.chains import LLMChain
 from langchain.output_parsers import PydanticOutputParser
@@ -64,18 +64,161 @@ class AnswerGenerator:
         temperature: float = 0.0,
         check_hallucinations: bool = True
     ):
-        self.llm = ChatOpenAI(
+        # Get LLM provider from environment
+        provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+        
+        logger.info(f"Initializing LLM with provider: {provider}")
+        
+        # Store provider and model info for metadata
+        self.provider = provider
+        self.model_identifier = None
+        
+        try:
+            if provider == "gemini":
+                self.llm = self._init_gemini(temperature)
+            elif provider == "openai":
+                self.llm = self._init_openai(model_name, temperature)
+            elif provider == "ollama":
+                self.llm = self._init_ollama(temperature)
+            else:
+                logger.warning(f"Unknown provider '{provider}', defaulting to Gemini")
+                self.llm = self._init_gemini(temperature)
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM provider '{provider}': {str(e)}")
+            raise ValueError(
+                f"Failed to initialize {provider} LLM.\n"
+                f"Error: {str(e)}\n\n"
+                f"Please check:\n"
+                f"1. Your API key is correct in .env file\n"
+                f"2. The API key has no extra spaces or quotes\n"
+                f"3. For Gemini: Get key from https://makersuite.google.com/app/apikey\n"
+                f"4. For OpenAI: Get key from https://platform.openai.com/api-keys"
+            )
+        
+        # Check hallucinations setting from environment
+        check_hallucinations_env = os.getenv("CHECK_HALLUCINATIONS", "true").lower()
+        self.check_hallucinations = check_hallucinations and check_hallucinations_env == "true"
+        
+        if not self.check_hallucinations:
+            logger.info("Hallucination checking disabled (saves 1 LLM call per query)")
+        
+        self.output_parser = PydanticOutputParser(pydantic_object=PolicyAnswer)
+    
+    def _init_gemini(self, temperature: float):
+        """Initialize Google Gemini - reads from .env"""
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        
+        # Read from environment
+        api_key = os.getenv("GOOGLE_API_KEY")
+        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
+        
+        # Store model identifier
+        self.model_identifier = model
+        
+        # Validate API key
+        if not api_key:
+            raise ValueError(
+                "GOOGLE_API_KEY not found in .env file.\n"
+                "Get your free API key from: https://makersuite.google.com/app/apikey"
+            )
+        
+        # Clean the API key
+        api_key = api_key.strip().strip('"').strip("'")
+        
+        if not api_key or len(api_key) < 20:
+            raise ValueError(
+                f"GOOGLE_API_KEY appears invalid (length: {len(api_key)}).\n"
+                "Please check your .env file and ensure the key is correct."
+            )
+        
+        logger.info(f"Gemini Configuration from .env:")
+        logger.info(f"  - Model: {model}")
+        logger.info(f"  - API Key: {api_key[:8]}...{api_key[-4:]}")
+        
+        try:
+            llm = ChatGoogleGenerativeAI(
+                model=model,
+                google_api_key=api_key,
+                temperature=temperature,
+                convert_system_message_to_human=True
+            )
+            
+            if "flash" in model.lower():
+                logger.info("✅ Using Gemini 1.5 Flash - Fast & efficient with generous FREE quota")
+            elif "pro" in model.lower():
+                logger.info("✅ Using Gemini 1.5 Pro - More capable but lower rate limits")
+            else:
+                logger.info(f"✅ Using Gemini model: {model}")
+            
+            return llm
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Provide helpful error messages
+            if "404" in error_msg or "not found" in error_msg.lower():
+                raise ValueError(
+                    f"Gemini model '{model}' not found.\n\n"
+                    f"Valid model names:\n"
+                    f"  - gemini-1.5-flash-latest (RECOMMENDED for free tier)\n"
+                    f"  - gemini-1.5-pro-latest\n"
+                    f"  - gemini-pro (legacy)\n\n"
+                    f"Update your .env file:\n"
+                    f"GEMINI_MODEL=gemini-1.5-flash-latest\n\n"
+                    f"Original error: {error_msg}"
+                )
+            else:
+                raise ValueError(
+                    f"Failed to initialize Gemini with provided API key.\n"
+                    f"Error: {str(e)}\n\n"
+                    f"Please verify:\n"
+                    f"1. Get a NEW API key from: https://makersuite.google.com/app/apikey\n"
+                    f"2. Copy the ENTIRE key (usually starts with 'AIza')\n"
+                    f"3. Paste in .env file: GOOGLE_API_KEY=AIza...\n"
+                    f"4. NO quotes or extra spaces around the key\n"
+                    f"5. Ensure model in .env: GEMINI_MODEL=gemini-1.5-flash-latest"
+                )
+
+    def _init_openai(self, model_name: str, temperature: float):
+        """Initialize OpenAI (paid)"""
+        from langchain_openai import ChatOpenAI
+        
+        # Override with environment if set
+        model_name = os.getenv("OPENAI_MODEL", model_name)
+        
+        # Store model identifier
+        self.model_identifier = model_name
+        
+        llm = ChatOpenAI(
             model=model_name,
             temperature=temperature
         )
-        
-        self.check_hallucinations = check_hallucinations
-        
-        # Initialize output parser
-        self.output_parser = PydanticOutputParser(pydantic_object=PolicyAnswer)
-        
-        logger.info(f"Initialized answer generator with model: {model_name}")
+        logger.info(f"✅ Using OpenAI: {model_name} (paid API)")
+        return llm
     
+    def _init_ollama(self, temperature: float):
+        """Initialize Ollama (FREE local LLM)"""
+        from langchain_community.llms import Ollama
+        
+        # Read from environment
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        model = os.getenv("OLLAMA_MODEL", "llama2")
+        
+        # Store model identifier
+        self.model_identifier = model
+        
+        logger.info(f"Ollama Configuration from .env:")
+        logger.info(f"  - Model: {model}")
+        logger.info(f"  - Base URL: {base_url}")
+        
+        llm = Ollama(
+            model=model,
+            base_url=base_url,
+            temperature=temperature
+        )
+        logger.info(f"✅ Using Ollama: {model} (FREE, runs locally)")
+        logger.info("⚡ NO API calls - completely offline!")
+        return llm
+
     def generate(
         self,
         question: str,
@@ -116,9 +259,10 @@ class AnswerGenerator:
                 retrieved_docs=retrieved_docs
             ) if self.check_hallucinations else (True, 0.0)
             
-            # Prepare generation metadata
+            # Prepare generation metadata - use stored model identifier
             metadata = {
-                "model": self.llm.model_name,
+                "provider": self.provider,
+                "model": self.model_identifier or "unknown",
                 "num_retrieved_docs": len(retrieved_docs),
                 "context_length": len(context),
                 "has_citations": len(answer.policy_references) > 0
@@ -236,8 +380,36 @@ class AnswerGenerator:
         """Check if answer is grounded in context"""
         
         try:
+            # Use same provider for hallucination checking
+            provider = os.getenv("LLM_PROVIDER", "gemini").lower()
+            
+            if provider == "gemini":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                api_key = os.getenv("GOOGLE_API_KEY")
+                model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+                
+                check_llm = ChatGoogleGenerativeAI(
+                    model=model,
+                    google_api_key=api_key,
+                    temperature=0,
+                    convert_system_message_to_human=True
+                )
+            elif provider == "ollama":
+                from langchain_community.llms import Ollama
+                check_llm = Ollama(
+                    model=os.getenv("OLLAMA_MODEL", "llama2"),
+                    base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                    temperature=0
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                check_llm = ChatOpenAI(
+                    model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+                    temperature=0
+                )
+            
             hallucination_chain = LLMChain(
-                llm=ChatOpenAI(model="gpt-3.5-turbo", temperature=0),
+                llm=check_llm,
                 prompt=HALLUCINATION_CHECK_PROMPT
             )
             

@@ -6,6 +6,7 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import time
+import os
 
 from langchain.schema import Document
 
@@ -23,7 +24,8 @@ class QueryEngine:
         self,
         use_reranking: bool = True,
         use_multi_query: bool = False,
-        check_hallucinations: bool = True
+        check_hallucinations: bool = True,
+        use_gemini: bool = False  # Keep parameter but don't pass to generator
     ):
         # Initialize components
         self.vector_store_manager = VectorStoreManager()
@@ -38,6 +40,8 @@ class QueryEngine:
         else:
             self.retriever = base_retriever
         
+        # Initialize generator without use_gemini parameter
+        # Generator now reads LLM_PROVIDER from environment
         self.generator = AnswerGenerator(
             check_hallucinations=check_hallucinations
         )
@@ -131,14 +135,14 @@ class QueryEngine:
             "metadata": {
                 "user_id": user_id,
                 "timestamp": datetime.utcnow().isoformat(),
-                "num_sources": len(result.retrieved_docs),
+                "num_sources": len(result.retrieved_docs) if result.retrieved_docs else 0,
                 "sources": [
                     {
-                        "document": doc.metadata.get('source'),
-                        "page": doc.metadata.get('page'),
-                        "chunk_id": doc.metadata.get('chunk_id')
+                        "document": doc.metadata.get('source', 'N/A'),
+                        "page": doc.metadata.get('page', 'N/A'),
+                        "chunk_id": doc.metadata.get('chunk_id', 'N/A')
                     }
-                    for doc in result.retrieved_docs
+                    for doc in (result.retrieved_docs or [])
                 ],
                 "performance": {
                     "retrieval_time_ms": round(retrieval_time, 2),
@@ -185,7 +189,17 @@ class QueryEngine:
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "num_sources": 0,
-                "sources": []
+                "sources": [],
+                "performance": {
+                    "retrieval_time_ms": 0,
+                    "generation_time_ms": 0,
+                    "total_time_ms": 0
+                },
+                "quality": {
+                    "is_grounded": False,
+                    "hallucination_score": 0.0,
+                    "requires_escalation": True
+                }
             },
             "status": "no_context"
         }
@@ -207,7 +221,19 @@ class QueryEngine:
             },
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
-                "error": error
+                "error": error,
+                "num_sources": 0,
+                "sources": [],
+                "performance": {
+                    "retrieval_time_ms": 0,
+                    "generation_time_ms": 0,
+                    "total_time_ms": 0
+                },
+                "quality": {
+                    "is_grounded": False,
+                    "hallucination_score": 0.0,
+                    "requires_escalation": True
+                }
             },
             "status": "error"
         }
